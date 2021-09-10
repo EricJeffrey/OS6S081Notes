@@ -1,1 +1,1 @@
-MIT6.S081操作系统课程，课程地址: [https://pdos.csail.mit.edu/6.828/2020/](https://pdos.csail.mit.edu/6.828/2020/).
+MIT6.S081操作系统课程笔记，课程地址: [https://pdos.csail.mit.edu/6.828/2020/](https://pdos.csail.mit.edu/6.828/2020/).
