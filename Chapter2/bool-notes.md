@@ -85,3 +85,30 @@ Operating system organization
   - linux是宏内核
   - L4，Minix，QNX等嵌入式多是微内核
 - 多线程支持：需要一些额外的系统功能，如linux的`clone`
+
+4.3 Code: Calling system calls
+
+执行第一个系统调用`exec("/init")`
+- 将参数保存在寄存器中
+- 使用ecall陷入内核并执行`uservec, usertrap`
+- 执行对应的syscall，即SYS_exec
+- 将返回值记录到`trapframe->a0`
+
+4.4 Code: System call arguments
+
+系统调用的参数获取
+- 陷入内核态时trapframe和寄存器会保存
+- `argint, argaddr, argfd`用来获得整数/指针/文件描述符参数
+- 内核态没有地址翻译，需要考虑指针安全
+- xv6使用`fetchstr, copyinstr, copyoutstr`获得字符串值
+- `copyinstr`使用`walkaddr`来获得虚拟地址对应的物理地址
+- `walkaddr`会检查参数是否为调用程序可用的合法地址
+
+
+未了解内核态时的疑问：用户态到内核态切换，或者说执行系统调用为何会有开销overhead？
+- 系统调用需要CPU陷入trap into内核态
+- 需要进行许多操作
+  - 指令模式切换：User mode -> Supervisor mode
+  - 保存用户栈，寄存器信息
+  - 获得/拷贝系统调用参数，并校验调用入口和参数是否合法
+- 最后才会在程序的kernel栈上执行系统调用
