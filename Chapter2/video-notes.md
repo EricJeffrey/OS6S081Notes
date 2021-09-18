@@ -1,0 +1,1 @@
+1. qemu-gdb提供了一个gdb-server，可以通过risc64-xx-gdb连接到并进行调试
