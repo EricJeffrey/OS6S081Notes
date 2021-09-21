@@ -7,3 +7,5 @@
 2. LEC3中提到了对CPU的复用(multiplex)，实际上是对CPU进行时间片复用。那么`epoll, select, poll`这些I/O多路复用，复用的是什么？
 
     I/O多路复用是通过一个事件循环监听多个文件描述符，相比多线程的方式，复用的是线程
+
+3. kernel/exec.c中`exec`是如何执行加载的程序的？

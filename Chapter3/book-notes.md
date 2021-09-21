@@ -40,3 +40,63 @@ Page tables 页表
 ![xv6 kernel address space](xv6%20kernel%20address%20space.png)
 
 3.3 Code: creating an address space 创建地址空间
+
+- `kernel/vm.c`文件包含了主要的虚拟内存操作
+  - 主要数据结构`pagetable_t`，实际上是个指向`page-table page`的指针
+  - `walk`函数用来寻找虚拟地址的页表入口`PTE`
+  - `mappages`函数添加一个新的映射（创建PTE）
+  - `copyin/copyout`用于拷贝字符串(到/自)用户空间
+- 启动过程，main会调用`kvminit`(kernel/vm.c:22)
+  - 它首先分配一个page
+  - 然后使用`kvmmap`添加内核的指令和数据地址映射
+  - kvmmap调用`mappages`，调用`walk`添加映射
+- `walk`的时候虚拟地址需要是直接映射到物理地址
+- main会调用`kvminithart`，将根`page-table page`写入到`satp`寄存器
+- `procinit`(kernel/proc.c:26)会分配每个进程的内核栈
+- 每个RISC-V CPU会将PTE(page table entries)缓存到`Translation Look-aside Buffer(TLB)`中，所以页表发生更改时需要通知CPU。
+- RSCV-V的`sfence.vma`指令会刷新CPU的TLB，因此`kvminithart`中在更新`stap`寄存器后会使用该指令，以及在`kernel/trampoline.S:79`中切换到用户页表的时候
+
+3.4 物理内存分配
+
+- 以4096B的页为单位
+- 使用链表存储可用的页
+
+3.5 Code: Physical memory allocator
+
+- `kalloc.c`(kernel/kalloc.c)
+- 数据结构：`struct run`，被自旋锁保护
+- 启动时主函数使用`kinit`初始化分配器，会将内核结束到物理地址结束之间的页初始化到链表
+- xv6认为内存是固定的128MB
+- 物理地址需要对齐页的大小4096，所以需要使用`PGROUNDUP`确保地址合法
+- 每个run对象实际就是对应的页，run的指针就是那个页的地址，页大小为4096，会被强制转换为`run`的类型，并将其中的`next`指针指向下一个页的地址
+
+3.6 进程地址空间
+
+- 每个进程有独立的页表`page table`，系统在切换进程时需要切换页表
+- 进程需要内存时，内核使用`kalloc`分配
+- 虚拟地址一些优点
+  - 每个进程有独立地址空间
+  - 虚地址连续，物理地址可能不连续
+  - `trampoline`代码可以映射到每个进程地址空间（只需要一个trampoline物理内存page）
+- 进程地址空间如图，栈stack是个独立的页，包含exec执行的时候的一些参数内容
+- 栈下面有个guard页，确保参数过大溢出时会产生错误
+
+![process user address space](process%20user%20address%20space.jpg)
+
+3.7 Code: sbrk
+
+- sbrk用来扩张/缩小进程的内存，具体实现在`growproc`(kernel/proc.c:239)
+- 使用`uvmalloc, uvmdealloc`分配/释放内存
+  - 分配`uvmalloc`时会使用`kalloc`分配内存并使用`mappages`添加页表入口PTE
+  - 释放`uvdealloc`时使用`walk`寻找PTE并使用`kfree`释放
+
+3.8 Code: exec
+
+- exec从文件系统创建地址空间中用户的部分
+- 使用`namaei`获得打开`elf`文件，并读取其中内容，`kernel/elf.h`定义了ELF文件格式
+  - `struct elfhdr`
+  - `struct proghdr` 一个ELF段Segment
+- 过程
+  1. 检查`elfhdr`内容
+  2. 使用`proc_pagetable`(kernel/exec.c:38)分配Segment的内存
+  3. 使用`loadseg`将Segment加载到内存，使用`walk`获得物理地址，使用`readi`读取段内容
