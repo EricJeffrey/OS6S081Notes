@@ -9,3 +9,5 @@
     I/O多路复用是通过一个事件循环监听多个文件描述符，相比多线程的方式，复用的是线程
 
 3. kernel/exec.c中`exec`是如何执行加载的程序的？
+
+4. 书中3.8节第37页中描述的`ustack`的前三个入口的`fake return program counter`是什么？

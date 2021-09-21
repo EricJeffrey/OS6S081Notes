@@ -100,3 +100,19 @@ Page tables 页表
   1. 检查`elfhdr`内容
   2. 使用`proc_pagetable`(kernel/exec.c:38)分配Segment的内存
   3. 使用`loadseg`将Segment加载到内存，使用`walk`获得物理地址，使用`readi`读取段内容
+  4. `proghdr`的`filesz`可能比`memsz`小，表示那些gap区域需要填充为0，作为C的全局变量区域
+  5. 拷贝参数字符串，并记录在`ustack`中
+  6. `ustack`的前三个entry是`fake return program counter`, `argc` 和 `argv指针`
+  7. exec会在栈下添加一个空page作为guard，`copyout`溢出的话会发现不可访问返回-1
+  8. 执行失败会跳转到bad，释放镜像image
+  9. 一旦新镜像image创建完，exec就可以更新`new page table`(kernel/exec.c:113)，并释放旧的
+1.  exec会将ELF文件内容加载到指定的区域，非常危险，需要许多地址检验
+
+3.9 Real world 现实世界
+
+- 许多操作系统会结合page-fault异常，使用更复杂的分页机制
+- xv6内核地址固定起始于0x80000000，但真实的机器其RAM是不可预测的
+- xv6不支持物理地址的保护（RISC-V支持）
+- RISC-V支持`super page`超大页（MB级的page），但是xv6不支持
+- xv6缺少像`malloc`这样的分配器
+- 真实的操作系统需要能分配各种大小内存块，而不是只支持4096B的page
