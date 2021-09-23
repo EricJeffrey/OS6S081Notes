@@ -10,4 +10,10 @@
 
 3. kernel/exec.c中`exec`是如何执行加载的程序的？
 
+   通过修改当前的程序计数器PC实现程序执行。例如内核启动的第一个程序init，其执行了`exec("/init")`的汇编指令来启动init进程，在kernel/exec.c:115可以看到其设置了`p->trapframe->epc=elf.entry`。
+
 4. 书中3.8节第37页中描述的`ustack`的前三个入口的`fake return program counter`是什么？
+
+5. gdb调试出现`.gdbinit:2: Error in sourced command file:`错误？
+
+   使用`gdb-multiarch`
