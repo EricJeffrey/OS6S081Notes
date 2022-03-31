@@ -4,9 +4,9 @@ Page tables 页表
 
 - RISC-V指令的地址操作数都为虚拟地址，page table hardware负责虚拟地址到物理地址的转换
 - xv6运行在Sv39的RISC-V上：64位虚拟地址只有低39位用到
-- 寻址过程：64位虚拟地址，搞25位未使用，低39位作为地址
+- 寻址过程：64位虚拟地址，高25位未使用，低39位作为地址
   - 低39位的高27位
-    - `9+9+9`的PTE(Page Table Entry)树形结构，最终定位到一个**44位**的PPN(Physical Pag Number)
+    - `9+9+9`的PTE(Page Table Entry)树形结构，最终定位到一个**44位**的PPN(Physical Page Number)
     - 树形结构中，每层通过对应的9位得到下一层的物理地址（最上层地址固定）
   - 低39位的**低12位**：与上面的44位结合得到**56位**的实际物理地址
     - 低12位抽象出大小为`2^12=4096(Byte)`的页表
@@ -30,7 +30,7 @@ Page tables 页表
 - xv6为每个进程维护一个page-table，描述进程的地址空间
 - xv6为整个内核维护一个page-table，描述内核的地址空间
 - QEMU模拟的内存从0x80000000，该地址以下的为设备接口，会被映射到对设备的操作
-- 内核使用直接映射或者RAM或者设备的地址
+- 内核使用直接映射获取RAM或者设备的地址
   - 比如内核的地址空间在`KERNBASE=0x8000000`，虚拟地址和物理地址皆如此
   - 也有一些不是直接映射的
     - trampoline page
@@ -93,7 +93,7 @@ Page tables 页表
 3.8 Code: exec
 
 - exec从文件系统创建地址空间中用户的部分
-- 使用`namaei`获得打开`elf`文件，并读取其中内容，`kernel/elf.h`定义了ELF文件格式
+- 使用`namei`获得打开`elf`文件，并读取其中内容，`kernel/elf.h`定义了ELF文件格式
   - `struct elfhdr`
   - `struct proghdr` 一个ELF段Segment
 - 过程
