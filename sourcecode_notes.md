@@ -15,3 +15,9 @@
    7. `proc.c/h` 和进程、页表相关的实现 proc_pagetabl allocproc freeproc...
 2. user目录
    1. `usys.pl` 系统调用的入口
+
+
+### asm汇编相关
+
+1. `auipc` 将立即数与PC的upper20位相加，并保存到目的寄存器 -> `auipc rd, imm`
+2. `jalr` 跳转并link寄存器，跳转到某个标签并将下一个pc的值放到目的寄存器 -> `jalr rd, offset`
