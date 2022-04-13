@@ -31,3 +31,7 @@
 - 内存屏障memory barrier也叫fence
 
 - 非必要不共享数据：避免race condition
+
+- RISC-V的amoswap指令也包含了memory order，下图
+  
+  ![](riscv_amoswap_memorder.png)
