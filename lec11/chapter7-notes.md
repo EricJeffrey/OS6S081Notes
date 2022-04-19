@@ -81,3 +81,66 @@ main.c------> schduler.... ---^
   - 需要禁用中断，否则进程可能被调度到另一个CPU上，导致获得错误的hartid
 - `myproc`禁用中断并调用`mycpu`获取进程信息，然后启用中断
   - 获得的proc信息不会受中断影响：即便调度了另一个CPU上，proc结构仍然是同一个
+
+7.5 Sleep and wakeup
+
+- PV原语实现
+  - 忙等 busy waiting 浪费CPU
+  - 直接使用 `while (cnt == 0) sleep(semaphore)` 可能会出现 `wake lost`
+  - 需要使用 `acquire(lock); while (cnt == 0) sleep(semaphore, lock)` 的方式，
+
+7.6 Code: Sleep and wakeup
+
+- sleep获取**进程锁**和传入的**PV锁**，标记进程为SLEEPING，之后**释放PV锁**，然后使用`sched`让出进程，`sched`会释放掉进程的锁
+- wakeup获取这两个锁，标记进程为RUNNABLE
+- 如何保证不会丢失wakeup
+  - 睡眠中的进程在被标记为睡眠之前，要么拥有 PV锁，要么拥有 进程锁，或者两者都有
+  - wakeup在唤醒时，必须获取 进程锁
+  - 生产者可以保证，在消费者检查条件前完成对条件的修改，在消费者睡眠之后才唤醒睡眠中的进程
+- 对于多个等待的pipe数据的进程，可能出现 虚假的spurious 唤醒
+  - 唤醒了但是数据被另一个先wake的进程读完了
+  - 因此sleep总是在一个`while`循环中调用
+- `sleep/wakeup`的神奇之处
+  - 轻量（不用特殊数据结构和忙等）
+  - 提供了一个中间抽象层，调用者无需知道细节
+
+7.7 Pipe
+
+- 循环队列，读指针+写指针
+- 如果写满了就sleep当前进程然后wakeup读的进程
+
+7.8 Code: Wait, exit, and kill
+
+- parent进程退出的时候使用 reparent 将子进程交个init
+- `kernel/proc.c:wait` 使用全局的锁 wait_lock 保证子进程的wakeup不会丢失
+  - 为避免死锁，需要先获取wait_lock然后p->lock
+- exit既获取wait_lock也获取p->lock，前者为了保证wakeup不丢失，后者保证进程的状态正确改变
+  - 先wakeup再设置状态是可以的，因为锁还未释放
+- kill将`p->killed`设置为1，如果进程在slepp就唤醒它
+  - 进程可能在执行系统调用，因此不能直接结束它
+  - p->killed在usertrap或中断的时候会检查，所以用户进程或者在退出内核态的时候结束，或者在时钟中断/设备中断的时候结束
+- xv6有些sleep的调用并不会检查p->killed，这是因为这些代码需要在多个阶段的系统调用中保持原子性
+  - 磁盘IO只有在完成当前的系统调用后，再usertrapret时才会发现p->killed
+
+7.9 Process Locking
+
+- p->lock可以认为是，在读写 `state chan killed xstate pid` 时必须获取的锁
+- 列举了p->lock保护的操作/不变式
+- p->parent 由全局锁 wait_lock 保护，只有进程的parent才会修改进程的parent
+- wait_lock 序列化了parent和child 对exit的调用，保证子进程的wakeup不会丢失
+- wait_lock为什么是一个全局锁？因为只有在进程获取它了之后，进程才知道其parent进程是哪个（不会被reparent）
+
+7.10 Real world
+
+- xv6的调度 round robin
+- 真实系统可以由优先级priority，但会带来其它问题
+  - 优先级反转priority inversion：两个不同优先级进程用同一个锁，低优先级的先获取到锁了，违反了优先级的策略
+  - 护航肖莹convoy：耗时较少的潜在资源消费者被排在重量级的资源消费者之后，而后者的优先级可能并不高
+- Linux内核使用明确的进程等待队列
+- 惊群：所有在等待的进程都会唤醒，race竞争资源
+  - 多数条件变量会使用两种原语：唤醒一个和唤醒所有
+- 信号量semaphore的计数可以用来记录wakeup的数量，避免 假唤醒 和 惊群效应
+- xv6没有实现信号，信号可以唤醒sleep的进程
+- xv6的kill不够完善，有的sleep循环可能需要检查`p->killed`
+- 真是操作系统也应该使用 free 队列记录可用的进程块
+
