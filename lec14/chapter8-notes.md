@@ -81,3 +81,39 @@
     - write可能超过：xv6将超过日志大小的写操作分成多个小操作
     - unlink可能需要更改许多bitmanp和inode：xv6实际上只会用到一个bitmap块
   - 只在所需写入的数据量不超过logging中剩余数量时，logging才会允许这个system call进行写入，否则需要等待
+
+
+8.6 Code: logging
+
+- log的用法
+  ```c
+  begin_op();
+  ...
+  struct buf *bp = bread(...);
+  bp->data[...] = ...;
+  log_write(bp);
+  ...
+  end_op();
+  ```
+- `begin_op`开始一个transaction
+  - 如果当前有正在提交commit的，或者当前没有足够的空间，则等待
+- `log.outstanding`记录了预留空间的系统调用，总预留的空间为`log.outstanding * MAXOPBLOCKS`，其保守地认为每个syscall会使用MAXOPBLOCKS个块
+- `log_write`相当于`bwrite`的一个代码/Wrapper
+  - 它记录当前块的扇区号，在log中保留空间，并将 buffer 固定pin到buffer cache中，确保不会被淘汰
+  - `log_write`会吸收对同一扇区的多个操作，只保留最后一份，以改善性能
+- `end_op`将`outstanding - 1`，并在`outstanding == 0`的时候进行提交commit
+- `commit`干四件事
+  - `write_log`将log信息写到磁盘的log块中
+  - `write_head`将log的header写到磁盘：这也是事务提交的点，之后的crash都会被重放
+  - `install_trans`将实际数据写到磁盘中
+  - 最后`end_op`将首部数据的`n`设置为0
+- `recover_from_log`与上述类似，其会在系统启动的时候被第一个进程调用，重放上述`commit`操作
+- `filewrite(kernel/file.c)`是使用它的例子
+
+8.7 Code: Block allocator
+
+- xv6使用bitmap表示每个block是否在使用
+- `balloc`分配一个新的block，通过寻找bitmap为0的块得到
+- `bfree`将一个块释放，标记其bitmap为0
+- 这两个操作使用`bread`和`bwrite`向磁盘写入数据，由于后者已经使用锁进行了同步，所以这balloc和bfree不需要使用锁
+- balloc和bfree也要**在事务中调用**
