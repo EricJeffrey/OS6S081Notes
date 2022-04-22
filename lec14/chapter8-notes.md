@@ -30,4 +30,54 @@
   - 最后为数据block
 ![](struct_of_fs.png)
 
+8.2 Buffer cache layer
 
+- buffer cache的工作
+  - 同步磁盘访问操作
+  - 缓存常用的磁盘块
+- 每个buffer有一个对应的sleep-lock，确保每次只会有一个thread使用
+- 每次执行完操作后需要使用brelse释放锁
+- buffer不够的时候会使用LRU算法，回收一个块
+
+8.3 Code: Buffer cache
+
+- buffer cache 是一个双向链表
+- 每个buffer有一个disk标记为，表示当前内容是否已经从磁盘中读取进来，或者已经写入磁盘
+  - virtio_disk_rw 会修改disk属性
+- bget的时候使用`b->valid=0`确保buf的内容会重新从磁盘读取
+- 磁盘上每个sector对应的buffer只能有**最多一个**
+- `b->refcnt`不为0的时候，该buf不会被重用
+- `bcache.lock`保护了哪个磁盘块被缓存的信息，`b->lock`保护了对应的缓存buf
+- 修改buf后，调用者必须使用`bwrite`将更改写到磁盘上，并且在使用完后使用`brelse`释放这个快
+- `brelse`会将块放到双向链表的最前端
+  - `b->next` 记录了most recently used
+  - `b->prev` 记录了least recently used
+
+问题 
+- 什么情况下bget会出现 panic(no buffer)？所有buf都busy的时候，更好的方式是 *等待一个buf可用*
+
+8.4 Logging layer
+
+- crash恢复：许多文件系统的操作涉及多次磁盘写，因此需要确保磁盘突然断电重启/故障后能真保持正常状态
+- xv6使用日志logging解决这个问题
+  - 写操作不是直接操作磁盘，而是记录到logging中
+  - 一个syscall的所有写操作完成后，需要发起一个 **commit** 操作，将所有内容写到磁盘上
+  - 如果系统故障，则根据logging中的内容恢复
+    - 若logging完整，则按照记录重放写操作
+    - 若不完整则忽略
+  - 从而保证磁盘处于正确的状态
+
+8.5 Log design
+
+- 超级快中包含了logging的位置
+- log的header首部包含：扇区数组和log block的数量
+  - log block的数量要么是0，要么非0，表示有一个完整的commit
+- xv6在将数据写会到磁盘后将log block的数量设置为0
+- 每个系统调用都指明需要保持原子性的一系列write操作
+- logging只会在没有对文件系统进行操作的系统调用时进行commit
+- logging会聚合多个事务，提高效率
+- xv6使用固定大小来存储日志
+  - 系统调用的写操作不能超过日志的大小
+    - write可能超过：xv6将超过日志大小的写操作分成多个小操作
+    - unlink可能需要更改许多bitmanp和inode：xv6实际上只会用到一个bitmap块
+  - 只在所需写入的数据量不超过logging中剩余数量时，logging才会允许这个system call进行写入，否则需要等待
