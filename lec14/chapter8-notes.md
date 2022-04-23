@@ -117,3 +117,38 @@
 - `bfree`将一个块释放，标记其bitmap为0
 - 这两个操作使用`bread`和`bwrite`向磁盘写入数据，由于后者已经使用锁进行了同步，所以这balloc和bfree不需要使用锁
 - balloc和bfree也要**在事务中调用**
+
+
+8.8 Inode layer
+
+- dinode与inode
+  - dinode表示磁盘上的inode结构，包含type，size等信息
+  - inode是内存中的结构，包含dinode的拷贝和其它信息
+  - 其中nlink表示引用该inode的directories数目
+  - ref为inode的引用计数
+- itable包含了所有内存中的inode，itable.lock保护了itable和每个inode的引用计数ref
+- 每个inode也有个锁
+- inode的nlink不为0时，其数据不会被释放
+- `iget`只返回inode（没有的话分配一个），不会获取锁
+  - 避免特殊情况下的deadlock
+
+8.9 Code: Inodes
+
+- `ialloc`扫描所有的block寻找未使用的inode
+  - 因为对buffer的访问被同步了，所以ialloc也避免了不同进程的同步问题
+- `iget`获取一个inode，如果没有就分配个empty的，不会获取锁
+- `ilock`锁每个inode的sleep-lock，同步进程访问
+- `iunlock`会唤醒在等待的进程
+- `iput`将引用计数减一，如果为0了就释放掉dinode（写回磁盘）
+  - `iput`使用itrunc释放dinode
+- `iput`中的加锁可能的问题
+  - 潜在威胁1：另一个进程可能在等着使用inode，如果iput释放了会发现一个未alloc的inode
+    - 不会发生因为iput检查了inode的引用ref计数是否为1
+  - 潜在威胁2：另一个进程可能在ialloc中选择了iput释放的inode
+    - 没有问题：ialloc只会在iput完成后才选择，所以OK
+- `iput`表明，即便是`read()`这种是只读的系统调用，也会写磁盘
+  - 因此只要用到文件系统，系统调用就应该使用**事务**来操作fs
+- 如果iput还未完成发送crash了，会出现分配了但是没有任何引用的文件dinode
+  - 方法1：重启后扫描整个文件系统，查找分配了dinode但是没引用的文件
+  - 方法2：在超级块superblock中记录分配了dinode的文件
+  - xv6哪种都没有，所以存在磁盘空间最终不可用的情况
