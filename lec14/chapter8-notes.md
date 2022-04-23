@@ -152,3 +152,40 @@
   - 方法1：重启后扫描整个文件系统，查找分配了dinode但是没引用的文件
   - 方法2：在超级块superblock中记录分配了dinode的文件
   - xv6哪种都没有，所以存在磁盘空间最终不可用的情况
+
+8.10 Code: Inode content
+
+- `dinode`的addr中保存了inode指向的磁盘上的数据block的地址
+  - addr大小为 NDIRECT+1，前NDIRECT个地址为直接地址，`addr[NDIRECT]`为间接地址，保存了后NINDIRECT个地址
+- `bmap`函数管理上述映射，并在必要的时候分配对应的block，保存其地址
+- `itrunc`释放inode，包括直接地址、间接地址等
+- `readi`和`writei`操作inode的数据
+  - 通过将数据buffer中的内容拷贝到dst中读取数据
+  - `writei`在文件尾（文件当前大小之后）写数据时会增大文件
+- `stati`获取inode的数据，面向用户的接口
+
+8.11 Code: directory layer
+
+- 目录inode->type为T_DIR，其数据是一系列的`struct dirent`
+- `dirlookup`根据给定的名字寻找一个目录项
+  - 其通过`iget`获取对应的inode
+  - `dirlookup`与`iget`不获取锁有关：dirlookup需要对当前目录加锁，如果`iget`也加锁，那就会重新对当前目录加锁，造成死锁（也有涉及到父目录的更复杂的情况
+  - 调用者可以先释放当前目录的锁，然后再对获取到的inode加锁
+- `dirlink`将目录中写入一个新的目录项
+  - 其在inode的数据中寻找一个空的dirent，然后向其写入数据
+
+8.11 Code: Path names
+
+- 路径查找设计一些列的`dirlookup`
+- `namei/nameiparent`使用`namex`实现路径的inode查找和父路径的inode查找
+- `namex`从确定根目录开始
+  - 如果是以`/`开头，就从根目录
+  - 否则从cwd开始
+  - 其使用`skipelem`来得到每一级目录的名字，该函数会将名字拷贝到name中，以便`nameiparent`使用
+  - 循环中每一步都要先当前的inode加锁：这是因为inode->type只有在ilock的时候才会保证从磁盘加载到内存
+  - namex对每个路径独立加锁：保证不同线程的路径查找能够同步进行，当然也带了了挑战
+    - 潜在威胁1：搜索了一个已经被删除的目录
+      - `dirlookup`会使用`iget`获取inode，而这会将refcnt值增加，所以其它线程不会在之后删除这个目录
+    - 潜在威胁2：死锁，如果查找中出现了`.`当前目录或父目录
+      - `namex`的循环中会先释放上一个锁，再获取下一个锁，避免了这个问题
+
