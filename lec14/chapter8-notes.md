@@ -189,3 +189,51 @@
     - 潜在威胁2：死锁，如果查找中出现了`.`当前目录或父目录
       - `namex`的循环中会先释放上一个锁，再获取下一个锁，避免了这个问题
 
+8.13 File descriptor layer
+
+- xv6对每个进程分配一个打开文件表`struct file *ofile[NOFILE] (kernel/proc.h)`，表中每一项是`struct file`
+- 多个进程打开相同文件时是独立的，每个进程有各自的offset
+- `struct file`也可能使用fork、dup等方式创建别名，即同一个file可能在进程的打开文件表中出现多次
+- xv6所有打开的文件保存在一个全局的表`ftable`中
+- `filealloc/fileclose/filedup/filestat/fileread/filewrite/`用来操作文件
+  - alloc创建一个file结构
+  - dup/close将file的ref加/减一，并在为0的时候释放掉
+  - filestat只作用于inode上，直接调用stati
+  - fileread/filewrite进行读写
+    - 根据file->readable/writable判断权限
+    - 对于inode来说，使用file->off作为文件位置（管道、控制台没有 *偏移量* 概念）
+  - 对于inode的操作需要加锁，因此对相同文件的并发读写不会产生覆盖问题
+
+8.14 Code: System calls
+
+- `sys_link/sys_unlink`创建或移除一个inode的引用
+  - 对于inode来说，其标识号只在同一个设备上是唯一的，因此link/unlink需要确保两个路径在同一个设备上
+  - 事务transaction简化了这两个系统调用：不需要担心对inode的修改造成文件系统处于不安全状态
+- `create`创建一个新的inode；`open/mkdir/mkdev`都使用到了它
+  - 对于新创建的目录，需要初始化其`./..`两个目录
+- `create/sys_link`都会同时拥有两个inode的锁
+  - 对于sys_link来说，其在获取新路径的锁时释放掉旧路径的锁
+  - 对于create，其另一个锁是全新分配的，所以不需要担心其它进程获取其所
+- 对于`sys_open`，新创建的文件在还未完成初始化时，只在当前进程的表中，其它进程看不到，因此不必担心冲突
+
+8.15 Real World
+
+- buffer cache在真实操作系统中更复杂
+  - 目的基本相同：缓存+同步并发的磁盘访问
+  - 现代的buffer通常会和 virtual memory 结合以实现 memory-mapped file
+- xv6的日志系统也不完善，commit无法和文件系统相关的系统调用并发，对日志的操作需要对整个log块加锁
+  - 除了日志系统也可以使用scavenger的方式在重启的时候扫描整个磁盘，但是效率较低
+- xv6的磁盘inode结构和早期的UNIX一致
+  - Linux的ext2/ext3也是这种结构
+  - 相对来说，这种结构中**目录**是效率较低的，每次查找需要寻找整个目录
+    - NTFS实现了平衡树的方式实现目录结构，保证查找效率
+- xv6在磁盘出错的时候直接panic，现代操作系统允许磁盘坏道等，一个block的错误不影响其他block的访问
+- xv6的磁盘大小是固定的，也无法动态扩张
+  - 现代操作系统会将多个物理设备抽象为一个逻辑设备
+    - RAID是一种例子，也有使用软件来实现这一抽象的
+  - 将 *磁盘管理* 与 *文件系统* 的实现分离的设计更清晰但是结构更复杂
+- xv6的文件系统不支持许多特性，例如快照和增量备份
+- Unix系统允许使用文件系统来管理许多不同的资源
+  - 具名管道、支持网络连接的文件系统、`/proc`文件系统等
+  - Unix通过给每一个文件一些列的`function pointers`来实现这种抽象：对文件系统的操作被映射为函数调用
+
